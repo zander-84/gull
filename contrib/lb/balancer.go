@@ -40,7 +40,7 @@ const (
 	Random
 )
 
-func NewBalancer(listener Listener, record bool, p Policy) Balancer {
+func NewBalancer(listener Listener, p Policy, record bool) Balancer {
 	switch p {
 	case RoundRobin:
 		return NewRoundRobin(listener, record)

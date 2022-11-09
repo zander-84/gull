@@ -36,7 +36,7 @@ type ServiceInstance struct {
 	// Name is the service name as registered.
 	Name string `json:"name"`
 	// Weight is the service priority level.
-	Weight string `json:"weight"`
+	Weight int `json:"weight"`
 	// Version is the version of the compiled.
 	Version string `json:"version"`
 	// Metadata is the kv pair metadata associated with the service instance.

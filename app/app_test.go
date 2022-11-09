@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/julienschmidt/httprouter"
 	"github.com/zander-84/gull/contrib/endpoint/http_router"
+	"github.com/zander-84/gull/contrib/lb"
 	"github.com/zander-84/gull/contrib/registry/etcd"
 	"github.com/zander-84/gull/endpoint"
 	"github.com/zander-84/gull/pbs"
@@ -133,6 +134,91 @@ func TestApp(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestApp2(t *testing.T) {
+	resource := endpoint.NewRmc()
+	resource = resource.Use(endpoint.OptionsErrorEncoder(endpoint.WrapError(map[endpoint.Protocol]func(ctx context.Context, err error){
+		endpoint.Http: func(ctx context.Context, err error) {
+
+		},
+		endpoint.Grpc: func(ctx context.Context, err error) {
+
+		},
+	}))).Use(endpoint.OptionsRecoverEncoder(endpoint.WrapRecover(map[endpoint.Protocol]func(ctx context.Context){
+		endpoint.Http: think.Recover,
+		endpoint.Grpc: think.Recover,
+	})))
+
+	resource.Endpoint([]endpoint.Protocol{endpoint.Http, endpoint.Grpc}, endpoint.MethodGet, "/a", func(ctx context.Context, request interface{}) (response interface{}, err error) {
+		return "hello", err
+	}, endpoint.WrapDecode(map[endpoint.Protocol]endpoint.HandlerFunc{
+		endpoint.Http: func(ctx context.Context, request interface{}) (response interface{}, err error) {
+			return request, err
+		},
+		endpoint.Grpc: func(ctx context.Context, request interface{}) (response interface{}, err error) {
+			return request, nil
+		},
+	}), endpoint.WrapEncode(map[endpoint.Protocol]endpoint.HandlerFunc{
+		endpoint.Http: func(ctx context.Context, request interface{}) (response interface{}, err error) {
+			httpCtx := ctx.(http.Context)
+			err = httpCtx.String(200, "hello")
+			return ctx, err
+		},
+		endpoint.Grpc: func(ctx context.Context, request interface{}) (response interface{}, err error) {
+			data := new(pbs.Response)
+			data.AdminName = "zander"
+			return data, err
+		},
+	}))
+
+	//g := gin.New()
+	g := httprouter.New()
+	p := http_router.NewRouter(g)
+	resource.Proxy(p.Endpoint, endpoint.Http)
+
+	hs := http.NewServer("127.0.0.1:9021", http.ServerHandler(p))
+	gs := grpc.NewServer("127.0.0.1:9022")
+	pbs.RegisterAdminServiceServer(gs, &server{Rmc: resource})
+
+	client, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{"172.16.86.160:2379"},
+		DialTimeout: time.Second, DialOptions: []grpc2.DialOption{grpc2.WithBlock()},
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer client.Close()
+
+	app := New(
+		Name("kratos"),
+		Version("v1.0.0"),
+		Server(hs, gs),
+		Signal(syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT, syscall.SIGKILL),
+		RegistrarTimeout(time.Second*10),
+		Registrar(&registry.Registry{Engine: etcd.New(client), Service: map[string]*registry.ServiceInstance{
+			"kratos-1": {
+				ID:        "kratos-11",
+				Name:      "kratos-1",
+				Version:   "v1.0.0",
+				Endpoints: []string{"http://127.0.0.1:9021"},
+			},
+			"kratos-2": {
+				ID:        "kratos-22",
+				Name:      "kratos-2",
+				Version:   "v1.0.0",
+				Endpoints: []string{"grpc://127.0.0.1:9022"},
+			},
+		}}),
+		//Registrar(&mockRegistry{service: map[string]*registry.ServiceInstance{}}),
+	)
+	//time.AfterFunc(time.Second, func() {
+	//	_ = app.Stop()
+	//})
+	if err := app.Run(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 type server struct {
 	Rmc endpoint.Rmc
@@ -151,7 +237,29 @@ func (s server) Info(ctx context.Context, in *pbs.Request) (*pbs.Response, error
 	return data2, err
 	//return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
 }
+func TestAppClient(t *testing.T) {
+	client, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{"172.16.86.160:2379"},
+		DialTimeout: time.Second, DialOptions: []grpc2.DialOption{grpc2.WithBlock()},
+	})
 
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer client.Close()
+
+	regist := etcd.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, _ := registry.NewServiceDiscovery("kratos-2", regist, lb.RoundRobin)
+	for {
+		fmt.Println(ds.GetServiceInstance())
+		fmt.Println()
+		time.Sleep(time.Second)
+	}
+}
 func TestApp_ID(t *testing.T) {
 	v := "123"
 	o := New(ID(v))
