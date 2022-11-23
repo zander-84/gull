@@ -63,10 +63,12 @@ func TestApp(t *testing.T) {
 		endpoint.Grpc: think.Recover,
 	})))
 
-	resource.Endpoint([]endpoint.Protocol{endpoint.Http, endpoint.Grpc}, endpoint.MethodGet, "/a", func(ctx context.Context, request interface{}) (response interface{}, err error) {
+	resource.Endpoint([]endpoint.Protocol{endpoint.Http, endpoint.Grpc}, endpoint.MethodGet, "/a/:id", func(ctx context.Context, request interface{}) (response interface{}, err error) {
 		return "hello", err
 	}, endpoint.WrapDecode(map[endpoint.Protocol]endpoint.HandlerFunc{
 		endpoint.Http: func(ctx context.Context, request interface{}) (response interface{}, err error) {
+			httpCtx := ctx.(http.Context)
+			fmt.Println(httpCtx.Request().URL.Path)
 			return request, err
 		},
 		endpoint.Grpc: func(ctx context.Context, request interface{}) (response interface{}, err error) {
@@ -90,7 +92,7 @@ func TestApp(t *testing.T) {
 	p := http_router.NewRouter(g)
 	resource.Proxy(p.Endpoint, endpoint.Http)
 
-	hs := http.NewServer("127.0.0.1:9009", http.ServerHandler(p))
+	hs := http.NewServer("0.0.0.0:9009", http.ServerHandler(p))
 	gs := grpc.NewServer("127.0.0.1:9003")
 	pbs.RegisterAdminServiceServer(gs, &server{Rmc: resource})
 

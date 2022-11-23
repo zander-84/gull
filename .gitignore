@@ -3,5 +3,4 @@
 start_proxy.sh
 wrk
 
-pbs/*
 wrk/*
