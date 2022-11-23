@@ -2,11 +2,11 @@ package app
 
 import (
 	"context"
-	"errors"
 	"github.com/zander-84/gull/registry"
 	"github.com/zander-84/gull/transport"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -36,10 +36,16 @@ type App struct {
 // New create an application lifecycle manager.
 func New(opts ...Option) *App {
 	o := options{
-		ctx:              context.Background(),
-		sigs:             []os.Signal{syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT},
-		registrarTimeout: 10 * time.Second,
-		stopTimeout:      10 * time.Second,
+		ctx:               context.Background(),
+		sigs:              []os.Signal{syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT},
+		registrarTimeout:  10 * time.Second,
+		stopTimeout:       10 * time.Second,
+		beforeStartEvents: make(map[int][]func() error, 0),
+		afterStartEvents:  make(map[int][]func() error, 0),
+		beforeStopEvents:  make(map[int][]func() error, 0),
+		afterStopEvents:   make(map[int][]func() error, 0),
+		finalEvents:       make(map[int][]func() error, 0),
+		eventsTimeOut:     time.Minute,
 	}
 	if id, err := uuid.NewUUID(); err == nil {
 		o.id = id.String()
@@ -86,6 +92,9 @@ func (a *App) Run() error {
 	a.instance = instance
 	a.mu.Unlock()
 	eg, ctx := errgroup.WithContext(NewContext(a.ctx, a))
+
+	a.beforeStart()
+
 	wg := sync.WaitGroup{}
 	for _, srv := range a.opts.servers {
 		srv := srv
@@ -109,6 +118,9 @@ func (a *App) Run() error {
 			return err
 		}
 	}
+
+	a.afterStart()
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, a.opts.sigs...)
 	eg.Go(func() error {
@@ -116,13 +128,16 @@ func (a *App) Run() error {
 		case <-ctx.Done():
 			return nil
 		case <-c:
+			a.beforeStop()
 			return a.Stop()
 		}
 	})
-	if err := eg.Wait(); err != nil && !errors.Is(err, context.Canceled) {
-		return err
-	}
-	return nil
+
+	err = eg.Wait()
+
+	a.afterStop()
+	a.finalStop()
+	return err
 }
 
 // Stop gracefully stops the application.
@@ -179,4 +194,112 @@ func NewContext(ctx context.Context, s Info) context.Context {
 func FromContext(ctx context.Context) (s Info, ok bool) {
 	s, ok = ctx.Value(appKey{}).(Info)
 	return
+}
+func (a *App) IsStop() bool {
+	select {
+	case <-a.ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// beforeStart 服务停止前事件
+func (a *App) beforeStart() {
+	keys := getAscKey(a.opts.beforeStartEvents)
+	if len(keys) < 1 {
+		return
+	}
+	for _, v := range keys {
+		a.doEvents(a.opts.beforeStartEvents[v])
+	}
+
+}
+
+// afterStart 服务启动前事件
+func (a *App) afterStart() {
+	keys := getAscKey(a.opts.afterStartEvents)
+	if len(keys) < 1 {
+		return
+	}
+	for _, v := range keys {
+		a.doEvents(a.opts.afterStartEvents[v])
+	}
+}
+
+// beforeStop 服务停止后事件
+func (a *App) beforeStop() {
+	keys := getAscKey(a.opts.beforeStopEvents)
+	if len(keys) < 1 {
+		return
+	}
+	for _, v := range keys {
+		a.doEvents(a.opts.beforeStopEvents[v])
+	}
+}
+
+// afterStop 服务停止后事件
+func (a *App) afterStop() {
+	keys := getAscKey(a.opts.afterStopEvents)
+	if len(keys) < 1 {
+		return
+	}
+	for _, v := range keys {
+		a.doEvents(a.opts.afterStopEvents[v])
+	}
+}
+
+// finalStop 服务停止后事件
+func (a *App) finalStop() {
+	keys := getAscKey(a.opts.finalEvents)
+	if len(keys) < 1 {
+		return
+	}
+	for _, v := range keys {
+		a.doEvents(a.opts.finalEvents[v])
+	}
+}
+
+func (a *App) doEvents(events []func() error) {
+	ctx, cancel := context.WithTimeout(context.Background(), a.opts.eventsTimeOut)
+	defer cancel()
+	fin := make(chan struct{}, 1)
+	wg := sync.WaitGroup{}
+
+	for _, event := range events {
+		wg.Add(1)
+		go func(e func() error) {
+			defer wg.Done()
+			defer func() {
+				if rerr := recover(); rerr != nil {
+				}
+			}()
+			_ = e()
+		}(event)
+	}
+
+	go func() {
+		wg.Wait()
+		fin <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return
+	case <-fin:
+		return
+	}
+}
+
+func getAscKey(in map[int][]func() error) []int {
+	if len(in) < 1 {
+		return []int{}
+	}
+	keys := make([]int, 0)
+	for k, _ := range in {
+		keys = append(keys, k)
+	}
+
+	sort.Sort(sort.IntSlice(keys))
+	return keys
 }

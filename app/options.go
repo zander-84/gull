@@ -27,6 +27,15 @@ type options struct {
 	registrarTimeout time.Duration
 	stopTimeout      time.Duration
 	servers          []transport.Server
+
+	// int  从小到大排序
+	eventsTimeOut time.Duration
+
+	beforeStartEvents map[int][]func() error
+	afterStartEvents  map[int][]func() error
+	beforeStopEvents  map[int][]func() error
+	afterStopEvents   map[int][]func() error
+	finalEvents       map[int][]func() error
 }
 
 // ID with service id.
@@ -79,7 +88,78 @@ func RegistrarTimeout(t time.Duration) Option {
 	return func(o *options) { o.registrarTimeout = t }
 }
 
+func EventsTimeOut(eventsTimeOut time.Duration) Option {
+	return func(o *options) {
+		o.eventsTimeOut = eventsTimeOut
+	}
+}
+
 // StopTimeout with app stop timeout.
 func StopTimeout(t time.Duration) Option {
 	return func(o *options) { o.stopTimeout = t }
+}
+
+func AppendBeforeStartEvents(key int, events ...func() error) Option {
+	return func(o *options) {
+		if o.beforeStartEvents == nil {
+			o.beforeStartEvents = make(map[int][]func() error, 0)
+		}
+		es, ok := o.beforeStartEvents[key]
+		if !ok {
+			es = make([]func() error, 0)
+		}
+		o.beforeStartEvents[key] = append(es, events...)
+	}
+}
+
+func AppendAfterStartEvents(key int, events ...func() error) Option {
+	return func(o *options) {
+		if o.afterStartEvents == nil {
+			o.afterStartEvents = make(map[int][]func() error, 0)
+		}
+		es, ok := o.afterStartEvents[key]
+		if !ok {
+			es = make([]func() error, 0)
+		}
+		o.afterStartEvents[key] = append(es, events...)
+	}
+}
+
+func AppendBeforeStopEvents(key int, events ...func() error) Option {
+	return func(o *options) {
+		if o.beforeStopEvents == nil {
+			o.beforeStopEvents = make(map[int][]func() error, 0)
+		}
+		es, ok := o.beforeStopEvents[key]
+		if !ok {
+			es = make([]func() error, 0)
+		}
+		o.beforeStopEvents[key] = append(es, events...)
+	}
+}
+
+func AppendAfterStopEvents(key int, events ...func() error) Option {
+	return func(o *options) {
+		if o.afterStopEvents == nil {
+			o.afterStopEvents = make(map[int][]func() error, 0)
+		}
+		es, ok := o.afterStopEvents[key]
+		if !ok {
+			es = make([]func() error, 0)
+		}
+		o.afterStopEvents[key] = append(es, events...)
+	}
+}
+
+func AppendFinalEvents(key int, events ...func() error) Option {
+	return func(o *options) {
+		if o.finalEvents == nil {
+			o.finalEvents = make(map[int][]func() error, 0)
+		}
+		es, ok := o.finalEvents[key]
+		if !ok {
+			es = make([]func() error, 0)
+		}
+		o.finalEvents[key] = append(es, events...)
+	}
 }
