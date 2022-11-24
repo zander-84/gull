@@ -113,6 +113,36 @@ func TestApp(t *testing.T) {
 		Server(hs, gs),
 		Signal(syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT, syscall.SIGKILL),
 		RegistrarTimeout(time.Second*10),
+		AppendBeforeStartEvents(0, NewEvent("c1", func() error {
+			fmt.Println("run BeforeStart")
+			return nil
+		}), NewEvent("c2", func() error {
+			fmt.Println("run c2")
+			return nil
+		})),
+		AppendAfterStartEvents(0, NewEvent("c3", func() error {
+			fmt.Println("run AppendAfterStartEvents")
+			return nil
+		})),
+
+		AppendBeforeStopEvents(0, NewEvent("c4", func() error {
+			fmt.Println("run AppendBeforeStopEvents")
+			return nil
+		})),
+		AppendAfterStopEvents(1, NewEvent("c55", func() error {
+			fmt.Println("run AppendAfterStopEvents")
+			return nil
+		})),
+		AppendAfterStopEvents(0, NewEvent("c5", func() error {
+			fmt.Println("run AppendAfterStopEvents")
+			return nil
+		})),
+
+		AppendFinalEvents(0, NewEvent("c6", func() error {
+			fmt.Println("run AppendFinalEvents")
+			return nil
+		})),
+
 		Registrar(&registry.Registry{Engine: etcd.New(client), Service: map[string]*registry.ServiceInstance{
 			"kratos-1": {
 				ID:        "kratos-1",

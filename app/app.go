@@ -40,11 +40,11 @@ func New(opts ...Option) *App {
 		sigs:              []os.Signal{syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT},
 		registrarTimeout:  10 * time.Second,
 		stopTimeout:       10 * time.Second,
-		beforeStartEvents: make(map[int][]func() error, 0),
-		afterStartEvents:  make(map[int][]func() error, 0),
-		beforeStopEvents:  make(map[int][]func() error, 0),
-		afterStopEvents:   make(map[int][]func() error, 0),
-		finalEvents:       make(map[int][]func() error, 0),
+		beforeStartEvents: make(map[int][]Event, 0),
+		afterStartEvents:  make(map[int][]Event, 0),
+		beforeStopEvents:  make(map[int][]Event, 0),
+		afterStopEvents:   make(map[int][]Event, 0),
+		finalEvents:       make(map[int][]Event, 0),
 		eventsTimeOut:     time.Minute,
 	}
 	if id, err := uuid.NewUUID(); err == nil {
@@ -260,7 +260,7 @@ func (a *App) finalStop() {
 	}
 }
 
-func (a *App) doEvents(events []func() error) {
+func (a *App) doEvents(events []Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), a.opts.eventsTimeOut)
 	defer cancel()
 	fin := make(chan struct{}, 1)
@@ -275,7 +275,7 @@ func (a *App) doEvents(events []func() error) {
 				}
 			}()
 			_ = e()
-		}(event)
+		}(event.handler)
 	}
 
 	go func() {
@@ -291,7 +291,7 @@ func (a *App) doEvents(events []func() error) {
 	}
 }
 
-func getAscKey(in map[int][]func() error) []int {
+func getAscKey(in map[int][]Event) []int {
 	if len(in) < 1 {
 		return []int{}
 	}
